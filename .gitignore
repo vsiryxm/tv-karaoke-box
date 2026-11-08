@@ -1,0 +1,11 @@
+# 本地配置（放自己的电视地址，别提交）
+config.env
+
+# 编译中间产物
+build/
+.DS_Store
+*.pyc
+__pycache__/
+
+# 说明：karaoke.apk 与 debug.keystore 是故意入库的：
+# 前者方便直接装，后者保证 adb install -r 不换签名（仅调试用，见 README）。
