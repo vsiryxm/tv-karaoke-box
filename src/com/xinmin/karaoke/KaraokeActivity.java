@@ -175,11 +175,13 @@ public class KaraokeActivity extends Activity {
     /* 四种提醒（现统一走 Toast，不再常驻卡片）：1 开播 / 2 中场休息 / 3 下播预告 / 4 下播提醒。
         开播看 live_start；下播预告看节目单倒数第 2 个；
         下播提醒 = 已过 live_end 且节目单完整走完一场（走全屏礼花庆祝页，不是 Toast）。
-        可配置下播提醒的弹出位：live_end_program = 第几个节目唱完后弹（1 起；默认 0 = 按整场演完）。
-        弹出后不停播、不拦截推进：庆祝层播 15 秒自行收起，期间照常唱下一个节目。
+        位次版下播提醒：live_end_program = 第几个节目唱完后弹（1 起；默认 0 = 按整场演完）。
+        该节目唱完 → 弹全屏庆祝层并停住（下一首不播）；任意键先关庆祝层，
+        再按 OK 才继续下一首。收起后仍停住等 OK。
         配置值超出节目单范围时回退到默认行为（整场演完才弹）。 */
     private int endNoticeProg = 0;
     private boolean endNoticeShown = false;      // 本场是否已弹过位次版下播提醒
+    private boolean endNoticeHold = false;       // 位次版提醒已弹、停住等 OK 继续下一首
     private static final long CELEBRATE_MS = 15000L;   // 下播庆祝层停留：15 秒自行收起
     private boolean liveEnabled = false;
     private int liveStartMin = -1, liveEndMin = -1;
@@ -1006,15 +1008,17 @@ public class KaraokeActivity extends Activity {
                 + " 个节目开始，还有 " + left + " 个节目");
     }
 
-    /** 位次版下播提醒：第 endNoticeProg 个节目唱完后弹庆祝层（live_end_program 配置）。
-        只在直播模式、配置生效且本场未弹过时触发；不拦截推进、不停播，
-        庆祝层 15 秒自行收起，期间照常唱下一个节目。每场一次（开演时复位标记）。 */
+    /** 位次版下播提醒：第 endNoticeProg 个节目唱完后弹庆祝层并停住（下一首不播）。
+        只在直播模式、配置生效且本场未弹过时触发；任意键关层后按 OK 继续。
+        每场一次（开演时复位标记）。 */
     private void checkEndNoticeAt(int idx) {
         if (!liveMode || endNoticeProg <= 0 || endNoticeShown) return;
         if (idx != endNoticeProg - 1) return;         // 配置「第几个」→ 数组下标
         endNoticeShown = true;
+        endNoticeHold = true;
+        stopPlayer(); playing = false;               // 当前这首已唱完，停住、不播下一首
         startCelebration();
-        Log.i(TAG, "下播提醒（位次版）：第 " + (idx + 1) + " 个节目唱完，庆祝层 15 秒后自行收起，继续演出");
+        Log.i(TAG, "下播提醒（位次版）：第 " + (idx + 1) + " 个节目唱完，停住等 OK 继续");
     }
 
 
@@ -1039,7 +1043,7 @@ public class KaraokeActivity extends Activity {
     }
 
     /** 预生成礼花：16 次爆炸、每次 22 颗粒子。固定种子，每次放出来一模一样。
-        爆炸时刻铺满整个庆祝时长（20 秒），不会放完就没了。 */
+        爆炸时刻铺满整个庆祝时长（12.5 秒），不会放完就没了。 */
     private void initFireworks() {
         java.util.Random rnd = new java.util.Random(20261114L);
         float step = FW_SPAN_MS / (float) FW_BURSTS;
@@ -1243,7 +1247,10 @@ public class KaraokeActivity extends Activity {
         ProgramItem it = program.get(programIdx);
         liveArmed = false;
         /* 新一场开演：位次版下播提醒的「本场已弹」标记复位（从第 1 个节目重新计数）。 */
-        if (programIdx == 0 && !showStarted()) endNoticeShown = false;
+        if (programIdx == 0 && !showStarted()) {
+            endNoticeShown = false;
+            endNoticeHold = false;
+        }
         checkBreakNotice(programIdx);
         checkWarnNotice(programIdx);
         showList = false;
@@ -1288,9 +1295,14 @@ public class KaraokeActivity extends Activity {
     /** 推进到下一个节目；到末尾停住，不自动循环重播整场。 */
     private void advanceProgram(boolean withInterlude) {
         if (program.isEmpty()) return;
-        /* 位次版下播提醒：第 endNoticeProg 个节目唱完后弹（在推进前判定，不拦截推进本身）。
-           弹出层与播放并行：庆祝层 15 秒自行收起，期间照常唱下一个节目。 */
+        /* 位次版下播提醒：第 endNoticeProg 个节目唱完后弹，并停住不推进。
+           庆祝层任意键关、再按 OK 才继续（见 onKeyDown 的 endNoticeHold 分支）。 */
         checkEndNoticeAt(programIdx);
+        if (endNoticeHold) {                 // 本次触发了位次版下播提醒：停住，不播下一首
+            programWaiting = false;
+            if (view != null) view.invalidate();
+            return;
+        }
         if (programIdx + 1 >= program.size()) {
             stopPlayer(); playing = false;
             programWaiting = false;
@@ -1351,6 +1363,7 @@ public class KaraokeActivity extends Activity {
         programEnded = false;
         programWaiting = false;
         liveArmed = true;                 // 就绪：停下等 OK，不自动开演
+        endNoticeHold = false;
         stopPlayer();
         playing = false;
         showList = false;
@@ -1371,6 +1384,7 @@ public class KaraokeActivity extends Activity {
         programWaiting = false;
         programEnded = false;
         liveArmed = false;
+        endNoticeHold = false;
         showBanner("普通模式");
         Log.i(TAG, "切换 -> 普通模式");
         if (!songs.isEmpty()) play(cur, 0, true, false);
@@ -2027,10 +2041,36 @@ public class KaraokeActivity extends Activity {
             if (key == KeyEvent.KEYCODE_BACK) { finish(); return true; }
             return true;
         }
-        /* 下播庆祝层浮在画面上方，不拦截按键之外的操作：
-           任意键先收起庆祝层，不影响本键原本的功能。 */
         /* LIVE-BEGIN */
-        if (celebrating) { closeCelebration(); }
+        /* 位次版下播提醒：庆祝层浮着时，任意键只关层并吞掉本次，
+           连第一下 OK 也只关层，不会顺手触发暂停/点歌（等第二下 OK 才继续）。 */
+        if (celebrating) { closeCelebration(); return true; }
+        /* 庆祝层已关、仍停住等 OK：只有 OK 键推进下一首，其余键吞掉保持停住。 */
+        if (endNoticeHold) {
+            boolean okKey = (key == KeyEvent.KEYCODE_DPAD_CENTER
+                    || key == KeyEvent.KEYCODE_ENTER
+                    || key == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+                    || key == KeyEvent.KEYCODE_SPACE);
+            if (okKey) {
+                if (e.getRepeatCount() > 0) return true;
+                endNoticeHold = false;
+                advanceProgram(false);
+                Log.i(TAG, "下播提醒后按 OK：继续下一首");
+            }
+            return true;
+        }
+        /* 双击 # 在两种模式间切换；单击不动作，防老人误触。 */
+        if (key == KeyEvent.KEYCODE_POUND) {
+            if (e.getRepeatCount() > 0) return true;
+            long now = System.currentTimeMillis();
+            if (now - lastPoundAt <= POUND_DOUBLE_MS) {
+                lastPoundAt = 0;
+                toggleLiveMode();
+            } else {
+                lastPoundAt = now;
+            }
+            return true;
+        }
         /* LIVE-END */
         if (showList) return onListKey(key);
         switch (key) {
@@ -3034,8 +3074,8 @@ public class KaraokeActivity extends Activity {
             pCelFoot.setTextSize(W * 0.020f);
             pCelFoot.setColor(INK_SOFT);
             if (endNoticeProg > 0) {
-                /* 位次版：演出还在继续，页脚文案不说「已到点」 */
-                c.drawText("演出继续 · 稍后自行收起", cx, H * 0.605f, pCelFoot);
+                /* 位次版：唱完指定节目后停住，关层后按 OK 才继续 */
+                c.drawText("下一首已停住 · 关层后按 OK 继续", cx, H * 0.605f, pCelFoot);
             } else {
                 c.drawText("今天演了 " + program.size() + " 个节目  ·  " + liveEndTxt + " 已到点",
                            cx, H * 0.605f, pCelFoot);
@@ -3183,7 +3223,7 @@ public class KaraokeActivity extends Activity {
                 bh = H * 0.085f;
             } else {
                 bw = W * 0.30f;
-                bh = H * 0.140f;
+                bh = H * 0.165f;   /* 三行结构(标签+大字+时段)需要更高卡片，避免时段贴底 */
             }
             float by = H * 0.175f;                 // 顶栏之下（副信息约到 0.158，留足间隙避免压字）
             float x = (W - bw) / 2f;                // 顶部居中（苹果式 Toast）
@@ -3224,24 +3264,39 @@ public class KaraokeActivity extends Activity {
                 c.drawText(ellipsize(pToastMain, toastMain, bw - g * 3f),
                            tx, by + bh * 0.62f, pToastMain);
             } else {
+                /* 三行按各自真实字体度量排布：先 fit 定字号，再按 ascent/descent 逐行算
+                   baseline，整块在卡片内垂直居中。旧版标签从 g 起算、主文案用 bh*0.52，
+                   主文案字号大、上沿正好压到标签行，出现叠字。 */
                 pToastTag.setTextSize(W * 0.0145f);
                 pToastTag.setColor(accent);
                 pToastTag.setAlpha(a);
-                c.drawText(toastTag, tx, by + g + W * 0.0145f, pToastTag);
-
                 pToastMain.setTextAlign(Paint.Align.LEFT);
                 pToastMain.setColor(base);
                 pToastMain.setAlpha(a);
                 fit(pToastMain, toastMain, bw - g * 3f, W * 0.026f);
-                c.drawText(ellipsize(pToastMain, toastMain, bw - g * 3f),
-                           tx, by + bh * 0.52f, pToastMain);
-
-                pToastSub.setTextSize(W * 0.017f);
                 pToastSub.setColor(toastErr ? BAD : INK_SOFT);
                 pToastSub.setAlpha(a);
                 fit(pToastSub, toastSub, bw - g * 3f, W * 0.017f);
+
+                Paint.FontMetrics ft = pToastTag.getFontMetrics();
+                Paint.FontMetrics fm = pToastMain.getFontMetrics();
+                Paint.FontMetrics fs = pToastSub.getFontMetrics();
+                float tagH  = ft.descent - ft.ascent;
+                float mainH = fm.descent - fm.ascent;
+                float subH  = fs.descent - fs.ascent;
+                float gap   = Math.max(g * 0.35f, W * 0.004f);
+                float total = tagH + mainH + subH + gap * 2f;
+                float top   = by + Math.max(g * 0.3f, (bh - total) / 2f);
+                float tagBase  = top - ft.ascent;
+                float tagBottom = top + tagH;
+                float mainBase = tagBottom + gap - fm.ascent;
+                float mainBottom = mainBase + fm.descent;
+                float subBase  = mainBottom + gap - fs.ascent;
+                c.drawText(toastTag, tx, tagBase, pToastTag);
+                c.drawText(ellipsize(pToastMain, toastMain, bw - g * 3f),
+                           tx, mainBase, pToastMain);
                 c.drawText(ellipsize(pToastSub, toastSub, bw - g * 3f),
-                           tx, by + bh * 0.78f, pToastSub);
+                           tx, subBase, pToastSub);
             }
         }
 

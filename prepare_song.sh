@@ -1,25 +1,23 @@
 #!/bin/bash
-# prepare_song.sh — 把「歌名.mp3 + 歌名.lrc」变成电视上可分别调「导唱人声 / 伴奏」音量的曲库
+# prepare_song.sh — 给「歌名.mp3 + 歌名.lrc」补一份「歌名.伴奏.mp3」
 #
 # 用法：
 #   ./prepare_song.sh 朋友.mp3 [更多.mp3 ...]        # 单曲 / 多曲
 #   ./prepare_song.sh --dir /Volumes/USB/karaoke     # 整库批量（递归 2 层）
-#   ./prepare_song.sh --tv 朋友.mp3                  # 生成后直接推到电视 U 盘
-#   ./prepare_song.sh --force --dir ...              # 覆盖已有分轨
+#   TV_HOST=<电视IP>:5555 ./prepare_song.sh --tv 朋友.mp3   # 生成后推到电视 U 盘
+#   ./prepare_song.sh --force --dir ...              # 重做已有伴奏
 #   DEMUCS_BIN=/path/to/demucs ./prepare_song.sh 朋友.mp3
 #
-# 产物（与源 MP3 同目录，四个文件放一起拷进 U 盘即可）：
-#   歌名.mp3        原唱母版（保留，歌单显示与单轨兜底用）
-#   歌名.lrc        歌词（保留）
-#   歌名.人声.mp3   导唱人声分轨
-#   歌名.伴奏.mp3   无人声伴奏分轨
+# 产物（与源 MP3 同目录，三个文件放一起拷进 U 盘即可）：
+#   歌名.mp3          原唱（保留）
+#   歌名.lrc          歌词（保留）
+#   歌名.伴奏.mp3     无人声伴奏（本脚本唯一新增的文件）
 #
-# 原理：Demucs --two-stems=vocals --other-method minus 让「人声 + 伴奏 = 原曲」，
-# 电视端用 JLayer 把两路 MP3 解成 PCM，按各自增益相加后写单个 AudioTrack。
-# 两轨必须同参数 CBR：老电视的解码器对 VBR 的 seek 会静默失败，
-# 且只有编码延迟一致才能共享播放时钟（真机 165 秒实测最大差 2ms）。
+# 电视端曲库严格只认这三种文件名；旧版 .人声.mp3 不再生成，也不会进歌单。
+# 伴奏用 Demucs --two-stems=vocals --other-method minus 生成，统一 CBR：
+# Android 4.0.4 的 MediaPlayer 遇到 VBR 时 seekTo 会被静默忽略，切音轨就保不住位置。
 #
-# 电视端操作：1 切换原唱/伴奏，5 打开调音卡分别调人声与伴奏。详见 README。
+# 电视端操作：按 1 在「原唱 / 伴奏」两个文件间切换（保持进度），详见 README。
 
 set -e
 
@@ -61,7 +59,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ "$PUSH_TV" -eq 1 ] && [ -z "$TV" ]; then
-  echo "用 --tv 前请先设置 TV_HOST，例如：TV_HOST=<电视IP>:5555 ./prepare_song.sh --tv 朋友.mp3"
+  echo "--tv 需要电视地址：TV_HOST=<电视IP>:5555 ./prepare_song.sh --tv 朋友.mp3" >&2
   exit 1
 fi
 
@@ -83,12 +81,11 @@ fi
 # 把生成的两条分轨推到电视 U 盘：中文文件名通过「名字文件」传递，
 # 避开老电视 busybox shell 的编码问题；找不到同名主歌时落到 /mnt/sdcard/karaoke。
 push_to_tv() {
-  local src="$1" voc="$2" ins="$3"
-  local main_name lrc_name voc_name ins_name lrc
+  local src="$1" ins="$2"
+  local main_name lrc_name ins_name lrc
   main_name="$(basename "$src")"
   local stem="${main_name%.*}"
   lrc_name="${stem}.lrc"
-  voc_name="${stem}.人声.mp3"
   ins_name="${stem}.伴奏.mp3"
   lrc="$(dirname "$src")/${lrc_name}"
 
@@ -96,25 +93,22 @@ push_to_tv() {
   stage="$(mktemp -d -t ksstage)"
   printf '%s' "$main_name" > "$stage/main.name"
   printf '%s' "$lrc_name"  > "$stage/lrc.name"
-  printf '%s' "$voc_name"  > "$stage/voc.name"
   printf '%s' "$ins_name"  > "$stage/ins.name"
   cp "$src" "$stage/main.mp3"
-  cp "$voc" "$stage/v.mp3"
   cp "$ins" "$stage/b.mp3"
   if [ -f "$lrc" ]; then cp "$lrc" "$stage/main.lrc"; else : > "$stage/main.lrc"; fi
 
   "$ADB" -s "$TV" shell 'rm -rf /data/local/tmp/ksong; mkdir -p /data/local/tmp/ksong' >/dev/null 2>&1
-  for n in main.name lrc.name voc.name ins.name main.mp3 main.lrc v.mp3 b.mp3; do
+  for n in main.name lrc.name ins.name main.mp3 main.lrc b.mp3; do
     "$ADB" -s "$TV" push "$stage/$n" "/data/local/tmp/ksong/$n" >/dev/null 2>&1
   done
   "$ADB" -s "$TV" shell '
     S=/data/local/tmp/ksong
-    M=$(cat $S/main.name); L=$(cat $S/lrc.name)
-    V=$(cat $S/voc.name);  B=$(cat $S/ins.name)
+    M=$(cat $S/main.name); L=$(cat $S/lrc.name); B=$(cat $S/ins.name)
     D=""
     for f in /mnt/sdcard/*/*.mp3; do
       [ -f "$f" ] || continue
-      case "$f" in *人声*|*伴奏*) continue ;; esac
+      case "$f" in *伴奏*|*人声*) continue ;; esac
       if [ "${f##*/}" = "$M" ]; then D="${f%/*}"; break; fi
     done
     if [ -z "$D" ]; then
@@ -125,7 +119,7 @@ push_to_tv() {
       [ "$S2" -gt 0 ] && cp "$S/main.lrc" "$D/$L" 2>/dev/null
       echo "TV_NEWDIR $D"
     fi
-    cp "$S/v.mp3" "$D/$V" && cp "$S/b.mp3" "$D/$B" && echo "TV_OK $D/$V + $D/$B"
+    cp "$S/b.mp3" "$D/$B" && echo "TV_OK $D/$B"
     rm -rf "$S"
   ' 2>&1 | grep -E 'TV_OK|TV_NEWDIR'
   rm -rf "$stage"
@@ -143,18 +137,17 @@ for SRC in "${FILES[@]}"; do
   MAIN="$(basename "$SRC")"
   STEM="${MAIN%.*}"
   DIR="$(dirname "$SRC")"
-  VOC="${DIR}/${STEM}.人声.mp3"
   INS="${DIR}/${STEM}.伴奏.mp3"
   LRC="${DIR}/${STEM}.lrc"
 
-  if [ -f "$VOC" ] && [ -f "$INS" ] && [ "$FORCE" -eq 0 ]; then
-    echo "已有双分轨，跳过生成：${STEM}（覆盖加 --force）"
-    # 换 U 盘 / 重插电视时，--tv 仍要能把现成分轨推过去
-    if [ "$PUSH_TV" -eq 1 ]; then push_to_tv "$SRC" "$VOC" "$INS"; fi
+  if [ -f "$INS" ] && [ "$FORCE" -eq 0 ]; then
+    echo "已有伴奏，跳过生成：${STEM}（重做加 --force）"
+    # 换 U 盘 / 重插电视时，--tv 仍要能把现成伴奏推过去
+    if [ "$PUSH_TV" -eq 1 ]; then push_to_tv "$SRC" "$INS"; fi
     SKIP=$((SKIP + 1))
     continue
   fi
-  [ -f "$LRC" ] || echo "  提示：没找到 ${STEM}.lrc，仍会生成分轨，但电视上无歌词"
+  [ -f "$LRC" ] || echo "  提示：没找到 ${STEM}.lrc，仍会生成伴奏，但电视上无歌词"
 
   echo "分离：${STEM}"
   WORK="$(mktemp -d -t ksdemucs)"
@@ -197,20 +190,28 @@ for SRC in "${FILES[@]}"; do
     continue
   fi
 
-  mv "$TMPV" "$VOC"
-  mv "$TMPB" "$INS"
-  echo "  完成：${STEM}.人声.mp3 + ${STEM}.伴奏.mp3  (${D1}s / ${D2}s, CBR 128k)"
+  rm -f "$TMPV"          # 人声分轨只用于校验时长，曲库不再需要它
+  # 目标常在外置 U 盘，与 /tmp 不同卷；用 cp+rm 而不是 mv：
+  # 某些托管环境里的 mv shim 只做 rename(2)，跨卷会报 EXDEV 直接中断整批。
+  if ! /bin/cp "$TMPB" "$INS"; then
+    echo "  写入 U 盘失败：${INS}"
+    /bin/rm -f "$TMPB"
+    FAIL=$((FAIL + 1))
+    continue
+  fi
+  /bin/rm -f "$TMPB"
+  echo "  完成：${STEM}.伴奏.mp3  (${D2}s, CBR 128k)"
   OK=$((OK + 1))
 
   if [ "$PUSH_TV" -eq 1 ]; then
-    push_to_tv "$SRC" "$VOC" "$INS"
+    push_to_tv "$SRC" "$INS"
   fi
 done
 
 echo "----"
 echo "生成 ${OK} 首，跳过 ${SKIP} 首，失败 ${FAIL} 首。"
 if [ "$PUSH_TV" -eq 0 ]; then
-  echo "把「歌名.mp3」「歌名.lrc」「歌名.人声.mp3」「歌名.伴奏.mp3」放同一目录拷进 U 盘。"
+  echo "把「歌名.mp3」「歌名.lrc」「歌名.伴奏.mp3」放同一目录拷进 U 盘。"
 else
-  echo "已推送到电视；打开点歌台即可，遥控器 1 切换原唱/伴奏、5 调音量。"
+  echo "已推送到电视；打开 K 歌台即可，遥控器 1 切原唱 / 伴奏。"
 fi

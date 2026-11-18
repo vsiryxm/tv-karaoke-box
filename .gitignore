@@ -12,6 +12,9 @@ karaoke_setlist.txt
 # 定制版产物：构建期可能写入私人台名 / 默认提醒配置，不入库
 karaoke-live.apk
 
+# 临时工作区（歌单草稿、抓帧、dex 检查产物等，一律不入库）
+.temp/
+
 # 编译中间产物（strings.xml 由 build.sh 按 flavor 生成，可能含私人台名）
 build/
 res/values/strings.xml

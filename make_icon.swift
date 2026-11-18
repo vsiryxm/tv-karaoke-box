@@ -1,7 +1,7 @@
-// 生成启动图标：深蓝圆角底 + 细金边 + 居中金黄大字 + 底部短金条。
+// 生成启动图标：深蓝圆角底 + 细金边 + 居中一个金黄汉字 + 底部短金条。
 // 配色取自 KaraokeActivity.java 的 BG / GOLD，纯矢量绘制，不依赖图片素材。
-// 想换中间的字，改下面 NSAttributedString(string: "谢", ...) 里的字符串即可。
-// 用法: swift make_icon.swift res /tmp/xiejie_icon_preview.png
+// 用法: swift make_icon.swift res /tmp/icon_preview.png
+//       ICON_GLYPH=歌 swift make_icon.swift res      # 换中间那个汉字
 import Foundation
 import AppKit
 import CoreGraphics
@@ -13,6 +13,7 @@ let bg = NSColor(calibratedRed: 11.0 / 255.0, green: 17.0 / 255.0,
                  blue: 32.0 / 255.0, alpha: 1)
 let gold = NSColor(calibratedRed: 1, green: 201.0 / 255.0,
                    blue: 74.0 / 255.0, alpha: 1)
+let glyph = ProcessInfo.processInfo.environment["ICON_GLYPH"] ?? "K"
 
 func drawIcon(_ size: Int) -> CGImage? {
     let s = CGFloat(size)
@@ -46,7 +47,7 @@ func drawIcon(_ size: Int) -> CGImage? {
     ctx.addPath(inner)
     ctx.strokePath()
 
-    // 居中大字「谢」
+    // 居中大字（ICON_GLYPH 可覆盖）
     let fontSize = s * 0.56
     let font = NSFont(name: "PingFangSC-Semibold", size: fontSize)
         ?? NSFont.boldSystemFont(ofSize: fontSize)
@@ -54,7 +55,7 @@ func drawIcon(_ size: Int) -> CGImage? {
     // CoreText 认 CT 的属性名，NSAttributedString 认 NSColor，两个都给，避免字变黑
     attrs[NSAttributedString.Key(rawValue: "CTForegroundColor")] = gold.cgColor
     let line = CTLineCreateWithAttributedString(
-        NSAttributedString(string: "谢", attributes: attrs))
+        NSAttributedString(string: glyph, attributes: attrs))
     let b = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
     ctx.textPosition = CGPoint(x: (s - b.width) / 2 - b.origin.x,
                                y: s * 0.545 - b.origin.y - b.height / 2)

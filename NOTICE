@@ -1,0 +1,10 @@
+tv-karaoke-box
+Copyright (c) 2026 Simon Yang
+
+This product is licensed under the MIT License. The full license text is in
+the LICENSE file at the root of this repository, and is bundled here so that
+binary APK distributions carry the required notice.
+
+No third-party runtime library is linked into the APK. Optional helper
+scripts used on a computer (ffmpeg, Demucs, yt-dlp) are external tools and
+are never bundled; see THIRD_PARTY_NOTICES.md.

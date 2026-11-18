@@ -1,22 +1,21 @@
-# 第三方组件声明
+# 第三方声明
 
-## JLayer（MP3 解码器）
+APK 本身**零第三方运行时依赖**：只用 Android 4.0.4 / API 15 的系统 API，
+由 `javac` + `dx` + `aapt2` + `apksigner` 直接产出，没有链接任何 jar。
+项目源码与构建脚本采用 MIT 许可，见 `LICENSE` / `NOTICE`。
 
-- 文件：`lib/jlayer-1.0.1.4.jar`；配套系数表
-  `lib/res/javazoom/jl/decoder/*.ser`（`sfd.ser` / `l3reorder.ser` / `lin2au.ser` / `au2lin.ser`）
-- 版本：1.0.1.4，来源 Maven Central
-  `https://repo1.maven.org/maven2/com/googlecode/soundlibs/jlayer/1.0.1.4/jlayer-1.0.1.4.jar`
-- 上游项目：http://www.javazoom.net/javalayer/javalayer.html
-- 许可证：**GNU Lesser General Public License v2.1 (LGPL-2.1)**，Copyright (c) 1999-2005 JavaZoom
-- 本仓库**未修改源码**，仅把原始 jar 合入 `classes.dex`，并把 4 个 `.ser` 资源
-  按原路径打进 APK（JLayer 运行时通过 `getResourceAsStream` 读它们）。
-- 用途：部分老电视的 `MediaPlayer` 是私有独占会话，无法同时播两路；
-  这里用 JLayer 纯 Java 解两路 MP3 成 PCM，混音后写入一个标准 `AudioTrack`。
-- 许可全文：https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
-- 需要替换或审查时，用同版本 jar 覆盖 `lib/jlayer-1.0.1.4.jar` 后跑 `./build.sh`。
-  单轨兼容模式不依赖 JLayer，但当前构建脚本仍会把它打进 APK。
+下面这些只是**在电脑上制作伴奏 / 整理曲库时可能用到的外部工具**，
+不会打包进 APK，也不需要在电视上安装：
 
----
+| 工具 | 用途 | 许可 |
+| --- | --- | --- |
+| ffmpeg | 转码、探测时长、生成 CBR 128k / 44.1kHz / stereo 伴奏 | LGPL / GPL（按你安装的构建而定） |
+| Demucs | `prepare_song.sh` 里做人声 / 伴奏分离 | MIT |
+| yt-dlp | 从公开视频页面采集音频（可选） | Unlicense |
 
-本仓库自身代码（`src/`、`build.sh`、`make_icon.swift`、`prepare_song.sh`、
-`make_inst.sh`、`karaoke.sh` 等）适用仓库根目录 `LICENSE`（MIT）。
+`debug.keystore` 是仓库自带的公开调试签名，只为了方便 `adb install -r`
+不换签名；正式分发请换成自己的密钥。
+
+早期版本曾用 JLayer（LGPL 2.1）做双 PCM 混音。v5 起改为单 `MediaPlayer`
+在原唱 / 伴奏两个文件间切换，JLayer 的 jar、系数表与 `MixEngine.java`
+已全部移除，本仓库不再分发任何 LGPL 组件。
