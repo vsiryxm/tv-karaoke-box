@@ -98,13 +98,6 @@ public class KaraokeActivity extends Activity {
 
     /** 伴奏只认「歌名.伴奏.mp3」这一种写法。 */
     private static final String INST_SUFFIX = ".伴奏";
-    /** 旧版分轨残留：不进歌单，避免歌名里混出「歌名.人声」之类条目。 */
-    private static final String[] LEGACY_SUFFIXES = {
-        ".人声", "-人声", "_人声", "(人声)", " (人声)",
-        ".vocal", "-vocal", "_vocal", ".导唱", "-导唱",
-        "-inst", "_inst", ".inst", " (inst)", "(inst)"
-    };
-
     /* 简洁 / 优雅 / 精致：纯色底、单一强调色、四级字号、统一圆角。
        API 15 的 Canvas 每 100ms 重绘一次，去掉渐变与描边还有实际性能收益。 */
     private static final int BG       = 0xFF0B1120;
@@ -114,7 +107,6 @@ public class KaraokeActivity extends Activity {
     private static final int INK_SOFT = 0xFFC3CEE2;   // 辅助：高对比浅灰
     private static final int INK_DIM  = 0xFF8898B4;   // 弱化信息 / 已唱过
     private static final int GOLD     = 0xFFFFC94A;   // 唯一强调色
-    private static final int TEAL     = 0xFF7FE3D0;
     private static final int BAD      = 0xFFFF8A80;
 
     private static final float FS_LYRIC = 0.050f;   // 64px @1280
@@ -307,7 +299,6 @@ public class KaraokeActivity extends Activity {
     private String interludeName = "";
     private int pendingIdx = 0;
     private boolean usbGone = false;
-    private long lastRecoverAt = 0;
 
     /* 点歌次数：点歌时只挂「待结算」，自然播到结尾才 +1。
        切歌 / 重唱 / 换音轨 / 退出都不结算；拖到结尾也不算（countVetoed）。 */
@@ -729,15 +720,6 @@ public class KaraokeActivity extends Activity {
         return null;
     }
 
-    /** 旧版分轨残留一律不进歌单。 */
-    private boolean legacyStem(String stem) {
-        String s = stem.toLowerCase();
-        for (String suf : LEGACY_SUFFIXES) {
-            if (s.endsWith(suf.toLowerCase())) return true;
-        }
-        return false;
-    }
-
     private String audioPath(Song s) {
         return (useInst && s.instPath != null) ? s.instPath : s.path;
     }
@@ -866,7 +848,7 @@ public class KaraokeActivity extends Activity {
                 + " 个，提醒=" + (liveEnabled
                     ? liveStartTxt + "-" + liveEndTxt
                       + "（下播提醒："
-                      + (endNoticeProg > 0 ? "第 " + endNoticeProg + " 个节目唱完后弹"
+                      + (hasEndNoticePosition() ? "第 " + endNoticeProg + " 个节目唱完后弹"
                                           : "整场演完后弹") + "）" : "未启用"));
         /* LIVE-END */
     }
@@ -907,7 +889,7 @@ public class KaraokeActivity extends Activity {
         SharedPreferences.Editor e = prefs.edit();
         /* 下播提醒（整场演完版）：已过下播时间 + 节目单完整走完一场。
            配置了 live_end_program（位次版）时此路径跳过，避免同场弹两次。 */
-        if (endNoticeProg <= 0
+        if (!hasEndNoticePosition()
                 && now >= liveEndMin && programDone()
                 && !day.equals(prefs.getString("live_end_day", ""))) {
             e.putString("live_end_day", day).commit();
@@ -975,10 +957,18 @@ public class KaraokeActivity extends Activity {
         if (view != null) view.invalidate();
     }
 
-    /** 中场休息：走到 floor(N/2)+1 个节目时弹一次（N=12 → 第 7 个），不中断推进。 */
+    private boolean hasEndNoticePosition() {
+        return endNoticeProg > 0 && endNoticeProg <= program.size();
+    }
+
+    private int formalProgramCount() {
+        return hasEndNoticePosition() ? endNoticeProg : program.size();
+    }
+
+    /** 正式节目过半时提醒，不中断推进。 */
     private void checkBreakNotice(int idx) {
-        if (program.isEmpty() || prefs == null) return;
-        if (idx != program.size() / 2) return;
+        int total = formalProgramCount();
+        if (total < 2 || prefs == null || idx != total / 2) return;
         Calendar cal = Calendar.getInstance();
         String day = cal.get(Calendar.YEAR) + "-" + (cal.get(Calendar.MONTH) + 1)
                 + "-" + cal.get(Calendar.DAY_OF_MONTH);
@@ -988,23 +978,23 @@ public class KaraokeActivity extends Activity {
         e.putString("live_start_day", day);       // 中场已过，不用再补开播提醒
         e.commit();
         showToast("中场休息", noticeBreak, "歇一歇，喝口水", false, TOAST_HOLD_MS);
-        Log.i(TAG, "中场休息提醒：第 " + (idx + 1) + " / " + program.size() + " 个节目");
+        Log.i(TAG, "中场休息提醒：第 " + (idx + 1) + " / " + total + " 个节目");
     }
 
     /** 下播预告：倒数第 2 个节目开始时弹一次（不再看 live_end 时间）。 */
     private void checkWarnNotice(int idx) {
-        if (program.isEmpty() || prefs == null) return;
-        if (idx != program.size() - 2) return;
+        int total = formalProgramCount();
+        if (total < 2 || prefs == null || idx != total - 2) return;
         Calendar cal = Calendar.getInstance();
         String day = cal.get(Calendar.YEAR) + "-" + (cal.get(Calendar.MONTH) + 1)
                 + "-" + cal.get(Calendar.DAY_OF_MONTH);
         if (day.equals(prefs.getString("live_warn_day", ""))) return;
         SharedPreferences.Editor e = prefs.edit();
         e.putString("live_warn_day", day).commit();
-        int left = program.size() - idx;             // 还剩几个（含当前这个）
+        int left = total - idx;             // 还剩几个（含当前这个）
         showToast("下播预告", String.format(noticeWarn, left),
                   "最后一个节目马上到", false, TOAST_HOLD_LONG_MS);
-        Log.i(TAG, "下播预告：第 " + (idx + 1) + "/" + program.size()
+        Log.i(TAG, "下播预告：第 " + (idx + 1) + "/" + total
                 + " 个节目开始，还有 " + left + " 个节目");
     }
 
@@ -1012,7 +1002,7 @@ public class KaraokeActivity extends Activity {
         只在直播模式、配置生效且本场未弹过时触发；任意键关层后按 OK 继续。
         每场一次（开演时复位标记）。 */
     private void checkEndNoticeAt(int idx) {
-        if (!liveMode || endNoticeProg <= 0 || endNoticeShown) return;
+        if (!liveMode || !hasEndNoticePosition() || endNoticeShown) return;
         if (idx != endNoticeProg - 1) return;         // 配置「第几个」→ 数组下标
         endNoticeShown = true;
         endNoticeHold = true;
@@ -1024,8 +1014,7 @@ public class KaraokeActivity extends Activity {
 
     /* ---------- 下播庆祝：全屏 + 礼花 ---------- */
 
-    /** 开始下播庆祝：全屏礼花，15 秒后自动收起；任意键可提前收。
-        不停播不拦截推进，庆祝层与下一个节目并行播放。 */
+    /** 开始下播庆祝：全屏礼花，15 秒后自动收起，任意键可提前收起。 */
     private void startCelebration() {
         celebrating = true;
         celebrateAt = System.currentTimeMillis();
@@ -1320,7 +1309,6 @@ public class KaraokeActivity extends Activity {
         if (!withInterlude) { enterProgram(nxt); return; }
         interludeName = program.get(nxt).key;
         interludeUntil = System.currentTimeMillis() + 2000;
-        pendingIdx = nxt;
         showList = false;
         stopPlayer(); playing = false;
         programWaiting = false;
@@ -1465,7 +1453,6 @@ public class KaraokeActivity extends Activity {
         for (File f : files) {
             String stem = stemOfName(f.getName());
             if (stem.toLowerCase().endsWith(INST_SUFFIX.toLowerCase())) continue; // 伴奏不算主歌
-            if (legacyStem(stem)) continue;                                       // 旧分轨不算主歌
             if (foundDir.length() == 0 && f.getParentFile() != null)
                 foundDir = f.getParentFile().getAbsolutePath();
             Song s = new Song();

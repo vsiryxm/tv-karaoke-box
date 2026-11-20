@@ -80,7 +80,7 @@ if flavor == "live" and os.path.isfile(conf):
         if not line or line.startswith("#") or "=" not in line:
             continue
         k, v = line.split("=", 1)
-        k = k.strip().lower().replace("appname", "app_name")
+        k = k.strip().lower()
         v = v.strip().strip('"').strip("'").strip()
         if k in LIVE and v:
             kv[k] = v

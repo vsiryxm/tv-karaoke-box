@@ -4,10 +4,6 @@ karaoke.conf
 karaoke_program.txt
 karaoke_openings.txt
 karaoke_setlist.txt
-# 例外：docs/backup/ 是有意入库的直播配置备份，覆盖上面的同名忽略
-!docs/backup/karaoke.conf
-!docs/backup/karaoke_program.txt
-!docs/backup/karaoke_openings.txt
 
 # 定制版产物：构建期可能写入私人台名 / 默认提醒配置，不入库
 karaoke-live.apk

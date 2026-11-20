@@ -41,7 +41,6 @@ karaoke.conf.example                          配置模板（台名、欢迎语�
 karaoke_openings.example.txt                  报幕词模板（定制版）
 karaoke_program.example.txt                   节目单模板（定制版）
 karaoke.apk                                   开源版成品（可直接安装）
-docs/backup/                                  直播配置备份（有意入库）
 ```
 
 私人数据（真实台名、节目单、报幕词）只在 U 盘上，不入仓库。

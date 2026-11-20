@@ -31,7 +31,6 @@ tv-karaoke-box/
 ├── karaoke.conf.example           # karaoke.conf 全键注释模板（定制版专用键在其中）
 ├── karaoke_openings.example.txt / karaoke_program.example.txt / sample.lrc
 ├── res/                           # 图标 + values/strings.xml（构建期生成，不入库）
-├── docs/backup/                   # 有意入库的私人配置备份（.gitignore 例外放行）
 ├── karaoke.apk                    # 开源版成品，**故意入库**
 └── karaoke-live.apk               # 定制版成品，**不入库**
 ```
@@ -57,7 +56,7 @@ tv-karaoke-box/
 
 - 扫描根：常量 `ROOTS`（`/mnt/sdcard`、`/mnt/usbdisk`、`/mnt/usb`、`/sdcard`、`/storage/sdcard0`、`/data/local/tmp/karaoke`）+ `/proc/mounts` 里文件系统含 `fat/ntfs/fuse` 且挂载点以 `/mnt/` 或 `/storage/` 开头的目录（去重）。
 - 递归深度上限 5 层；跳过隐藏文件；只收 `.mp3`。
-- 主歌 = 去掉扩展名的 stem；伴奏 = 同目录 `歌名.伴奏.mp3`（大小写不敏感，`INST_SUFFIX=".伴奏"`）；`LEGACY_SUFFIXES` 列出的旧分轨命名不进歌单。
+- 主歌 = 去掉扩展名的 stem；伴奏 = 同目录 `歌名.伴奏.mp3`（大小写不敏感，`INST_SUFFIX=".伴奏"`）。独立分轨文件应存放在曲库之外。
 - LRC 匹配同目录 `歌名.lrc`（大小写不敏感）。
 
 ### 3.2 LRC 解析（`loadLrc`）
@@ -71,7 +70,7 @@ tv-karaoke-box/
 
 ### 3.3 配置 `karaoke.conf`
 
-- 格式：UTF-8，一行 `key=value`，`#` 注释，键名大小写不敏感（`appname` 归一为 `app_name`），值可含 `\n`。
+- 格式：UTF-8，一行 `key=value`，`#` 注释，键名大小写不敏感，值可含 `\n`。
 - 优先级（运行期）：U 盘根目录 `karaoke.conf` > APK `assets/karaoke.conf` > 代码默认。
 - 键表与白名单（构建期只收白名单键写进 assets）：
 
@@ -84,7 +83,7 @@ tv-karaoke-box/
 | `live_start` / `live_end` | live | `18:30` / `20:00` |
 | `live_start_text` / `live_break_text` / `live_warn_text` / `live_end_text` | live | 「直播开始啦 / 中场休息一下 / 还有 %d 个节目 / 直播结束啦」 |
 
-- `live_start`/`live_end` 校验：正则严格 `HH:mm`（两位），且 end > start，不合法则 `liveEnabled=false`（全部提醒静默）。
+- `live_start`/`live_end` 校验：正则严格 `HH:mm`（两位），且 end > start，不合法则 `liveEnabled=false`（按时钟触发的提醒关闭）。
 - 开源版构建**不读本地 `karaoke.conf`**（防私人信息混入）；定制版构建读仓库根目录同名文件。
 
 ### 3.4 节目单 `karaoke_program.txt`（U 盘根目录，live 版）
@@ -149,10 +148,10 @@ tv-karaoke-box/
 
 ### 4.6 四种提醒触发（`checkLiveNotice` / `checkBreakNotice` / `checkWarnNotice`）
 
-- `liveEnabled` 为前提（时段校验通过）。按分钟粒度查 Calendar（电视本机时区），每种每天各一次（`lastLiveMinute` 去重）。
+- 开播和按时钟触发的下播提醒须通过时段校验。按分钟粒度检查电视本机时间。
 - 开播：跨过 `live_start` 且在时段内 → 未开演（`live_started_at<=0` 且未演完）则 `armFirstProgram()`（定位第 1 个节目进就绪态）；已开演只弹气泡（15s）。
-- 中场：进入第 `floor(N/2)+1` 个节目时弹（5s）；下播预告：进入倒数第 2 个节目时弹（15s）。
-- 下播：`>= live_end` 且 `program_done=1` → 全屏庆祝页（礼花粒子 `FW_BURSTS=16×FW_PARTS=22`，约 20 秒），任意键收起。`warn_before` 已废弃不实现。
+- 有效的 `live_end_program` 作为正式节目数 N，超出该位置的节目可留作备用。未设有效位次时 N 等于清单总节目数。中场在第 `floor(N/2)+1` 项弹出（5 秒），下播预告在正式节目倒数第 2 项弹出（15 秒）。正式节目少于 2 项时，省略这两条提示。
+- 下播：到指定节目结束时弹出 15 秒庆祝页，停止自动推进。收起后按 OK 继续。未设有效位次时，等到 `>= live_end` 且 `program_done=1` 再弹出。
 - 全部临时提示统一走 `showToast`（顶部居中淡入 320ms → 停留 5s → 淡出 320ms，苹果式无位移，错误红字；直播时间提醒用 15s 档）。
 
 ### 4.7 按键总表（实现对照）
@@ -206,7 +205,6 @@ tv-karaoke-box/
 ## 7. 入库纪律（.gitignore 契约）
 
 - **不入库**：`karaoke.conf`、`karaoke_program.txt`、`karaoke_openings.txt`、`karaoke-live.apk`、`build/`、`res/values/strings.xml`、`config.env`。
-- **例外**：`docs/backup/` 是有意入库的配置备份（`!docs/backup/...` 放行）。
 - **故意入库**：`karaoke.apk`（开源成品可直接安装）、`debug.keystore`（保覆盖安装签名一致）。
 
 > AI生成
